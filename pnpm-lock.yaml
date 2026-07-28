@@ -24,14 +24,15 @@ overrides:
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
   '@xmldom/xmldom@<0.8.13': 0.8.13
   lodash@<=4.17.23: 4.18.1
+  '@ghosttypes/ff-api': file:vendor/ghosttypes-ff-api-1.3.2.tgz
 
 importers:
 
   .:
     dependencies:
       '@ghosttypes/ff-api':
-        specifier: github:GhostTypes/ff-5mp-api-ts
-        version: https://codeload.github.com/GhostTypes/ff-5mp-api-ts/tar.gz/2ea04ff6864bde4c45cc46eb3622977ddb13ac6d
+        specifier: file:vendor/ghosttypes-ff-api-1.3.2.tgz
+        version: file:vendor/ghosttypes-ff-api-1.3.2.tgz
       '@parallel-7/slicer-meta':
         specifier: file:vendor/slicer-meta
         version: file:vendor/slicer-meta
@@ -1242,8 +1243,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ghosttypes/ff-api@https://codeload.github.com/GhostTypes/ff-5mp-api-ts/tar.gz/2ea04ff6864bde4c45cc46eb3622977ddb13ac6d':
-    resolution: {tarball: https://codeload.github.com/GhostTypes/ff-5mp-api-ts/tar.gz/2ea04ff6864bde4c45cc46eb3622977ddb13ac6d}
+  '@ghosttypes/ff-api@file:vendor/ghosttypes-ff-api-1.3.2.tgz':
+    resolution: {integrity: sha512-Nn1zEHRp0RW+Yx+cCk2pNw49L1jxLgnzlqh3xOglZzjH8QyNIhshR+mSw620CdydoRF1d1Q449gTKJy6BL84fw==, tarball: file:vendor/ghosttypes-ff-api-1.3.2.tgz}
     version: 1.3.2
 
   '@isaacs/cliui@8.0.2':
@@ -5269,7 +5270,7 @@ snapshots:
   '@esbuild/win32-x64@0.27.3':
     optional: true
 
-  '@ghosttypes/ff-api@https://codeload.github.com/GhostTypes/ff-5mp-api-ts/tar.gz/2ea04ff6864bde4c45cc46eb3622977ddb13ac6d':
+  '@ghosttypes/ff-api@file:vendor/ghosttypes-ff-api-1.3.2.tgz':
     dependencies:
       axios: 1.16.1
       form-data: 4.0.5

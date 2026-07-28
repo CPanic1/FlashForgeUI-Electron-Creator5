@@ -58,6 +58,8 @@ lib/
 
 # Output of 'npm pack'
 *.tgz
+# ...but keep vendored, pre-built dependency tarballs (needed for a clean build)
+!vendor/*.tgz
 
 # Yarn Integrity file
 .yarn-integrity
@@ -79,6 +81,9 @@ lib/
 # Nuxt.js build / generate output
 .nuxt
 dist
+# ...but keep the pre-built output of the vendored slicer-meta package
+!vendor/slicer-meta/dist
+!vendor/slicer-meta/dist/**
 
 # Gatsby files
 .cache/
