@@ -862,8 +862,17 @@ export class ConnectionFlowManager extends EventEmitter {
     }
   }
 
-  /** Offer manual IP entry to user */
-  private async offerManualIPEntry(): Promise<ConnectionResult> {
+  /**
+   * Offer manual printer entry to the user.
+   *
+   * Collects the IP address and, optionally, a serial number + check code. When a
+   * serial/check code pair is supplied the printer is paired over the modern HTTP
+   * API (port 8898) without probing the legacy TCP command port (8899). This is the
+   * only way to add printers such as the Creator 5 / Creator 5 Pro, which expose the
+   * HTTP API but never open 8899. Leaving the serial blank preserves the original
+   * legacy direct-IP behaviour for older printers that don't use a check code.
+   */
+  public async offerManualIPEntry(): Promise<ConnectionResult> {
     if (!this.inputDialogHandler) {
       return { success: false, error: 'Manual IP entry not available - input dialog handler not set' };
     }
@@ -871,7 +880,7 @@ export class ConnectionFlowManager extends EventEmitter {
     try {
       const ipAddress = await this.inputDialogHandler({
         title: 'Manual Printer Connection',
-        message: 'No printers found on network. Enter printer IP address manually:',
+        message: "Enter the printer's IP address:",
         defaultValue: '',
         inputType: 'text',
         placeholder: 'e.g., 192.168.1.100',
@@ -888,11 +897,141 @@ export class ConnectionFlowManager extends EventEmitter {
         this.loadingManager.showError('Invalid IP address format', 3000);
         return { success: false, error: 'Invalid IP address format' };
       }
+      const ip = validation.data;
 
-      return await this.connectDirectlyToIP(validation.data);
+      // Optionally collect serial + check code for modern (5M-family / Creator 5) printers.
+      const serialNumber = await this.inputDialogHandler({
+        title: 'Manual Printer Connection',
+        message:
+          "Enter the printer's serial number (required for Creator 5 / 5M-series). Cancel to connect a legacy printer that has no check code.",
+        defaultValue: '',
+        inputType: 'text',
+        placeholder: 'e.g., SNMVMF9606755',
+      });
+
+      if (serialNumber && serialNumber.trim() !== '') {
+        const checkCode = await this.inputDialogHandler({
+          title: 'Printer Pairing',
+          message: 'Enter the pairing code (check code) shown on the printer:',
+          defaultValue: '',
+          inputType: 'text',
+          placeholder: 'Enter check code...',
+        });
+
+        if (!checkCode || checkCode.trim() === '') {
+          this.loadingManager.showError('A check code is required to pair this printer.', 4000);
+          return { success: false, error: 'Check code required for manual pairing' };
+        }
+
+        return await this.connectManuallyWithCredentials(ip, serialNumber.trim(), checkCode.trim());
+      }
+
+      // No serial provided - fall back to the legacy direct-IP flow (unchanged behaviour).
+      return await this.connectDirectlyToIP(ip);
     } catch (error) {
       const errorMessage = getConnectionErrorMessage(error);
       this.loadingManager.showError(`Manual connection failed: ${errorMessage}`, 4000);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Query a printer's modern HTTP API (`/detail`) to verify credentials and identify
+   * the model before connecting. Returns the raw `detail` object, or null when the
+   * printer is unreachable over HTTP or rejects the serial/check code.
+   */
+  private async fetchModernPrinterDetail(
+    ipAddress: string,
+    serialNumber: string,
+    checkCode: string,
+    httpPort = 8898
+  ): Promise<{ detail?: Record<string, unknown>; error?: string }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(`http://${ipAddress}:${httpPort}/detail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+        body: JSON.stringify({ serialNumber, checkCode }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        return { error: `Printer returned HTTP ${response.status} on its API port (${httpPort}).` };
+      }
+      const data = (await response.json()) as {
+        code?: number;
+        message?: string;
+        detail?: Record<string, unknown>;
+      };
+      if (!data || data.code !== 0 || !data.detail) {
+        // The printer replies with e.g. {"code":-2,"message":"Lan mode error"} when the
+        // serial/check code is wrong or LAN mode is not (or no longer) active. Surface it.
+        const printerMessage = typeof data?.message === 'string' && data.message.trim() !== '' ? data.message : null;
+        return {
+          error: printerMessage
+            ? `Printer rejected the request: "${printerMessage}". Verify the serial and check code, and toggle LAN mode off/on on the printer.`
+            : 'Printer did not return valid detail data.',
+        };
+      }
+      return { detail: data.detail };
+    } catch (error) {
+      return {
+        error: `Could not reach the printer's HTTP API on port ${httpPort}: ${getConnectionErrorMessage(error)}`,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Pair and connect to a printer using an explicit IP, serial number and check code
+   * over the modern HTTP API. The printer is identified via `/detail`, saved, and then
+   * connected through {@link connectWithSavedDetails}, which skips the legacy TCP (8899)
+   * probe entirely. This is the supported path for Creator 5 / Creator 5 Pro printers.
+   */
+  public async connectManuallyWithCredentials(
+    ipAddress: string,
+    serialNumber: string,
+    checkCode: string
+  ): Promise<ConnectionResult> {
+    try {
+      this.loadingManager.show({ message: `Pairing with printer at ${ipAddress}...`, canCancel: false });
+
+      const detailResult = await this.fetchModernPrinterDetail(ipAddress, serialNumber, checkCode);
+      if (!detailResult.detail) {
+        const message = detailResult.error ?? 'Could not verify the printer over its HTTP API.';
+        this.loadingManager.showError(message, 6000);
+        return { success: false, error: message };
+      }
+      const detail = detailResult.detail;
+
+      const detailName = typeof detail.name === 'string' ? detail.name.trim() : '';
+      const printerModel = detailName !== '' ? detailName : 'FlashForge Printer';
+      const familyInfo = detectPrinterFamily(printerModel);
+
+      const details: PrinterDetails = {
+        Name: printerModel,
+        IPAddress: ipAddress,
+        SerialNumber: serialNumber,
+        CheckCode: checkCode,
+        ClientType: familyInfo.is5MFamily ? 'new' : 'legacy',
+        printerModel,
+        modelType: detectPrinterModelType(printerModel),
+        commandPort: 8899,
+        httpPort: 8898,
+      };
+
+      console.log(
+        `Manual pairing: identified "${printerModel}" at ${ipAddress} (is5MFamily=${familyInfo.is5MFamily}); connecting via saved-details flow`
+      );
+
+      // Persist so the printer can be auto-reconnected as "last used" next launch.
+      await this.savedPrinterService.savePrinter(details);
+
+      return await this.connectWithSavedDetails(details);
+    } catch (error) {
+      const errorMessage = getConnectionErrorMessage(error);
+      this.loadingManager.showError(`Manual pairing failed: ${errorMessage}`, 4000);
       return { success: false, error: errorMessage };
     }
   }

@@ -69,23 +69,14 @@ export const setupDialogHandlers = (): void => {
 
         if (userChoice === 'enter-ip') {
           console.log('User chose to enter IP manually');
-          // Show input dialog for IP entry
-          const ipAddress = await createInputDialog({
-            title: 'Enter Printer IP',
-            message: 'Enter the IP address of your FlashForge printer:',
-            placeholder: '192.168.1.100',
-            inputType: 'text',
-          });
-
-          if (ipAddress) {
-            // Connect directly to the provided IP
-            console.log(`Connecting directly to IP: ${ipAddress}`);
-            const result = await connectionManager.connectDirectlyToIP(ipAddress);
-            if (result.success) {
-              console.log('Manual IP connection completed successfully');
-            } else {
-              console.log('Manual IP connection failed:', result.error);
-            }
+          // Delegate to the shared manual-entry flow, which collects the IP plus an
+          // optional serial + check code and pairs modern (Creator 5 / 5M-series)
+          // printers over HTTP without probing the legacy TCP port.
+          const result = await connectionManager.offerManualIPEntry();
+          if (result.success) {
+            console.log('Manual connection completed successfully');
+          } else {
+            console.log('Manual connection failed:', result.error);
           }
         } else if (userChoice === 'scan-network') {
           console.log('User chose to scan network');
