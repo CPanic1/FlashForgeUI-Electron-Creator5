@@ -155,15 +155,19 @@ module.exports = {
     icon: 'src/icons/icon.icns',
     category: 'public.app-category.utilities',
     target: [
+      // Apple Silicon only: x64 builds run under Rosetta 2, which Apple
+      // removes for general apps in macOS 28.
       {
         target: 'dmg',
-        arch: ['x64', 'arm64'],
+        arch: ['arm64'],
       },
       {
         target: 'zip',
-        arch: ['x64', 'arm64'],
+        arch: ['arm64'],
       },
     ],
+    // Always include the arch in the filename so an x64 artifact can't be mistaken for the native one
+    artifactName: '${productName}-${version}-${arch}.${ext}',
     // Ensure macOS prompts for local network permission (required for Sequoia 15.0+)
     // This triggers the system permission dialog when the app attempts to discover/connect to printers
     extendInfo: {
